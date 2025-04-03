@@ -2,15 +2,28 @@ package main
 
 import (
 	"fmt"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"log"
 	"net/http"
 
 	"github.com/labstack/echo"
 )
 
-var task string
+var db *gorm.DB
+
+func initDB() {
+	dsn := "host=localhost user=postgres password=Felixculpa.16 dbname=postgres port=5432 sslmode=disable"
+	var err error
+	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Could not connect to database:  %v", err)
+	}
+}
 
 type requestBody struct {
-	Task string `json:task`
+	Task   string `json:"task""`
+	IsDone bool   `json:"is_done"`
 }
 
 func postTaskHandler(c echo.Context) error {
@@ -18,12 +31,25 @@ func postTaskHandler(c echo.Context) error {
 	if err := c.Bind(&request); err != nil {
 		return c.String(http.StatusBadRequest, "Invalid request")
 	}
-	task = request.Task
-	return c.String(http.StatusOK, "Task received")
+
+	newTask := Task{
+		Task:   request.Task,
+		IsDone: request.IsDone,
+	}
+
+	if err := db.Create(&newTask).Error; err != nil {
+		return c.String(http.StatusInternalServerError, "Could not create task")
+	}
+
+	return c.JSON(http.StatusOK, newTask)
 }
 
 func getTaskHandler(c echo.Context) error {
-	return c.String(http.StatusOK, "hello, "+task)
+	var tasks []Task
+	if err := db.Find(&tasks).Error; err != nil {
+		return c.String(http.StatusInternalServerError, "Could not get tasks")
+	}
+	return c.JSON(http.StatusOK, tasks)
 }
 
 func HelloHandler(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +57,8 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	initDB()
+	db.AutoMigrate(&Task{})
 	e := echo.New()
 	e.POST("/task", postTaskHandler)
 	e.GET("/task", getTaskHandler)
